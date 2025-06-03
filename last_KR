@@ -1,3 +1,5 @@
+
+
 #define F_CPU 1000000UL
 
 #include <avr/io.h>
@@ -126,15 +128,21 @@ void update_leds() {
 	} else if (mode == 1) {
 		PORTD = BLUE;
 		dp = 1;
+		blinking_enable = 0;
+		time_changed = 0;
 	} else if (mode == 2) {
 		PORTD = GREEN;
 		dp = 1;
+		blinking_enable = 0;
+		time_changed = 0;
     } else if (mode == 3) {
-        if (timerr)
+        if (timerr) {
 			PORTD = RED | BLUE;
-		else 
+			blinking_enable = 0;
+		} else {
 			PORTD = RED | GREEN;
 			dp = 1;
+		}		
     }
 }
 
@@ -229,9 +237,18 @@ void handle_long_press(int button) {
 		
     } else if (button == 2 && mode == 3) {
 		
+		if (blinking_enable == 2) {
+			blinking_enable = 0;
+			timerr = 0;
+			blink_count = 0;
+			update_leds();
+		} else {
+			if (min_t != 0 || sec_t != 0) {
         timerr = !timerr;
+			}		
+		update_leds();
+		}		
 		
-        update_leds();
         long_press = 0;
         ignr_d = 1;
 		
@@ -246,8 +263,8 @@ void led_blinking_handler() {
 	if (ms_blink >= 500) {
 		ms_blink = 0;
 
-		if (blinking_enable && time_changed) {
-			int max_blinks = (hours == 0 ? 24 : hours);
+		if (blinking_enable == 1 && time_changed) {
+			int max_blinks = (hours == 0) ? 24 : hours;
 
 			if (blink_count < max_blinks) {
 				if (blink_count % 2 == 0)
@@ -258,6 +275,12 @@ void led_blinking_handler() {
 			} else {
 			blinking_enable = 0;
 			}
+		} else if (blinking_enable == 2) {
+			if (blink_count % 2 == 0)
+				PORTD = GREEN;
+			else
+				PORTD = 0x00;
+				blink_count++;
 		}
 	}
 }
@@ -344,11 +367,13 @@ ISR(TIMER1_COMPA_vect) {
             }
         }
 
-		if (timerr && (min_t > 0 || sec_t > 0)) {
+		if (timerr) {
 			ms++;
 			if (ms >= 1000) {
 				ms = 0;
-				if (sec_t == 0 && min_t > 0) {
+				if (sec_t == 0 && min_t == 0) {
+					blinking_enable = 2;
+				} else if (sec_t == 0 && min_t > 0) {
 					min_t--;
 					sec_t = 59;
 				} else {
