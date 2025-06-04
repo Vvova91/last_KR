@@ -1,5 +1,3 @@
-
-
 #define F_CPU 1000000UL
 
 #include <avr/io.h>
@@ -19,27 +17,44 @@
 #define BAUD        4800UL
 #define UBRR_value  ((F_CPU / (16 * BAUD)) - 1)
 
-int hours = 0;
-int minutes = 0;
-int mode = 0;
-int dp = 0;
-
 int digits[DIGITS] = {0};
+	
+int mode = 0;
+int timerr = 0;
+
 int debounce1 = 0;
 int debounce2 = 0;
 int ignr_d = 0;
 int long_press = 1;
 
-int timerr = 0;
-int sec_t = 0;
-int min_t = 0;
-
-int blink_count = 0;
-int blinking_enable = 0;
-int time_changed = 0;
-
 uint8_t EEMEM save_hours;
 uint8_t EEMEM save_minutes;
+
+
+typedef struct {
+	int hours;
+	int minutes;
+	int dp;
+	int time_changed;
+} Clock;
+
+
+typedef struct {
+	int blink_count;
+	int blinking_enable;
+} Blinking;
+
+
+typedef struct {
+	int sec_t;
+	int min_t;
+} Timer;
+
+
+Clock clk = {0};
+Blinking blnk = {0};
+Timer tmr = {0};
+
 
 void Button_Init(void) {
 	MCUCR |= (1 << ISC01);
@@ -47,17 +62,20 @@ void Button_Init(void) {
     GICR |= (1 << INT0) | (1 << INT1);
 }
 
+
 void Timer_Counter_2_Init(void) {
 	TCCR2 = (1 << WGM21) | (1 << CS22) | (1 << CS21);
     OCR2 = 12;
     TIMSK |= (1 << OCIE2);
 }
 
+
 void Timer_Counter_1_Init(void) {
 	TCCR1B |= (1 << WGM12) | (1 << CS11) | (1 << CS10);
     OCR1A = 14;
     TIMSK |= (1 << OCIE1A);
 }
+
 
 void UART_Init(void) {
     UBRRL = UBRR_value;
@@ -66,10 +84,12 @@ void UART_Init(void) {
     UCSRC = (1 << URSEL) | (1 << UCSZ1) | (1 << UCSZ0);
 }
 
+
 void UART_send(unsigned char value) {
     while (!(UCSRA & (1 << UDRE)));
     UDR = value;
 }
+
 
 void UART_send_str(unsigned char *str) {
     while (*str != '\0') {
@@ -78,18 +98,21 @@ void UART_send_str(unsigned char *str) {
     }
 }
 
+
 void time2eeprom(void) {
-    eeprom_update_byte(&save_hours, (uint8_t)hours);
-    eeprom_update_byte(&save_minutes, (uint8_t)minutes);
+    eeprom_update_byte(&save_hours, (uint8_t)clk.hours);
+    eeprom_update_byte(&save_minutes, (uint8_t)clk.minutes);
 }
+
 
 void timefreeprom(void) {
-    hours = eeprom_read_byte(&save_hours);
-    minutes = eeprom_read_byte(&save_minutes);
+    clk.hours = eeprom_read_byte(&save_hours);
+    clk.minutes = eeprom_read_byte(&save_minutes);
 
-    if (hours > 23) hours = 0;
-    if (minutes > 59) minutes = 0;
+    if (clk.hours > 23) clk.hours = 0;
+    if (clk.minutes > 59) clk.minutes = 0;
 }
+
 
 void dec2digit(int dec) {
     switch (dec) {
@@ -107,95 +130,89 @@ void dec2digit(int dec) {
     }
 }
 
+
 void update_digits() {
     if (mode == 3) {
-        digits[0] = min_t / 10;
-        digits[1] = min_t % 10;
-        digits[2] = sec_t / 10;
-        digits[3] = sec_t % 10;
+        digits[0] = tmr.min_t / 10;
+        digits[1] = tmr.min_t % 10;
+        digits[2] = tmr.sec_t / 10;
+        digits[3] = tmr.sec_t % 10;
     } else {
-        digits[0] = hours / 10;
-        digits[1] = hours % 10;
-        digits[2] = minutes / 10;
-        digits[3] = minutes % 10;
+        digits[0] = clk.hours / 10;
+        digits[1] = clk.hours % 10;
+        digits[2] = clk.minutes / 10;
+        digits[3] = clk.minutes % 10;
     }
 }
+
 
 void update_leds() {
     if (mode == 0) {
 		PORTD = RED;
-		blinking_enable = 1;
+		blnk.blinking_enable = 1;
 	} else if (mode == 1) {
 		PORTD = BLUE;
-		dp = 1;
-		blinking_enable = 0;
-		time_changed = 0;
+		clk.dp = 1;
+		clk.time_changed = 0;
+		blnk.blinking_enable = 0;
 	} else if (mode == 2) {
 		PORTD = GREEN;
-		dp = 1;
-		blinking_enable = 0;
-		time_changed = 0;
+		clk.dp = 1;
+		clk.time_changed = 0;
+		blnk.blinking_enable = 0;
     } else if (mode == 3) {
         if (timerr) {
 			PORTD = RED | BLUE;
-			blinking_enable = 0;
+			blnk.blinking_enable = 0;
 		} else {
 			PORTD = RED | GREEN;
-			dp = 1;
+			clk.dp = 1;
 		}		
     }
 }
 
+
 void handle_short_press(int button) {
 	
     if (button == 1) {
+		
         if (mode == 1 && !ignr_d) {
-			
-            hours = (hours + 1) % 24;
+            clk.hours = (clk.hours + 1) % 24;
 			
         } else if (mode == 2) {
-			
-            minutes = (minutes + 1) % 60;
+            clk.minutes = (clk.minutes + 1) % 60;
 			
         } else if (mode == 3 && !timerr) {
-			
-            sec_t++;
-            if (sec_t > 59) {
-                sec_t = 0;
-                min_t++;
-                if (min_t > 59) min_t = 0;
+            tmr.sec_t++;
+            if (tmr.sec_t > 59) {
+                tmr.sec_t = 0;
+                tmr.min_t++;
+                if (tmr.min_t > 59) tmr.min_t = 0;
             }
         }
+			blnk.blink_count = 0; 
 		
-			 
-			blink_count = 0; 
-			
 		
     } else if (button == 2) {
         if (mode == 1) {
-			
-            hours = (hours == 0) ? 23 : hours - 1;
+            clk.hours = (clk.hours == 0) ? 23 : clk.hours - 1;
 			
         } else if (mode == 2) {
-			
-            minutes = (minutes == 0) ? 59 : minutes - 1;
+            clk.minutes = (clk.minutes == 0) ? 59 : clk.minutes - 1;
 			
         } else if (mode == 3 && !timerr && !ignr_d) {
-			
-            if (min_t <= 0 && sec_t <= 0) {
-                sec_t = 0; 
-				min_t = 0;
+            if (tmr.min_t <= 0 && tmr.sec_t <= 0) {
+                tmr.sec_t = 0; 
+				tmr.min_t = 0;
 				
-            } else if (sec_t == 0 && min_t > 0) {
-                min_t--; sec_t = 59;
+            } else if (tmr.sec_t == 0 && tmr.min_t > 0) {
+                tmr.min_t--; tmr.sec_t = 59;
 				
             } else {
-                sec_t--;
+                tmr.sec_t--;
             }
         }
-			
-			 
-			blink_count = 0; 
+			blnk.blink_count = 0; 
 			
 		
     }
@@ -204,31 +221,29 @@ void handle_short_press(int button) {
 void handle_long_press(int button) {
 	
     if (button == 0) {
-		
         mode = (mode != 3) ? 3 : 0;
+		
         update_leds();
         long_press = 0;
         ignr_d = 1;
 		
     } else if (button == 1 && !(mode == 3)) {
-		
         mode = (mode + 1) % 3;
-		 
- 		blink_count = 0; 
 		
-        update_leds();
+		update_leds();
+ 		blnk.blink_count = 0;
         long_press = 0;
         ignr_d = 1;
 		
     } else if (button == 1 && mode == 3 && !timerr) {
 		
-        sec_t++;
-        if (sec_t > 59) {
-            sec_t = 0;
-            min_t++;
-            if (min_t > 59) {
-                min_t = 0;
-                sec_t = 0;
+        tmr.sec_t++;
+        if (tmr.sec_t > 59) {
+            tmr.sec_t = 0;
+            tmr.min_t++;
+            if (tmr.min_t > 59) {
+                tmr.min_t = 0;
+                tmr.sec_t = 0;
             }
         }
 		
@@ -236,15 +251,14 @@ void handle_long_press(int button) {
         ignr_d = 1;
 		
     } else if (button == 2 && mode == 3) {
-		
-		if (blinking_enable == 2) {
-			blinking_enable = 0;
+		if (blnk.blinking_enable == 2) {
+			blnk.blinking_enable = 0;
 			timerr = 0;
-			blink_count = 0;
+			blnk.blink_count = 0;
 			update_leds();
 		} else {
-			if (min_t != 0 || sec_t != 0) {
-        timerr = !timerr;
+			if (tmr.min_t != 0 || tmr.sec_t != 0) {
+				timerr = !timerr;
 			}		
 		update_leds();
 		}		
@@ -257,35 +271,38 @@ void handle_long_press(int button) {
 
 
 void led_blinking_handler() {
+	
 	static ms_blink = 0;
 	
 	ms_blink++;
 	if (ms_blink >= 500) {
 		ms_blink = 0;
 
-		if (blinking_enable == 1 && time_changed) {
-			int max_blinks = (hours == 0) ? 24 : hours;
+		if (blnk.blinking_enable == 1 && clk.time_changed) {
+			int max_blinks = (clk.hours == 0) ? 24 : clk.hours;
 
-			if (blink_count < max_blinks) {
-				if (blink_count % 2 == 0)
+			if (blnk.blink_count < max_blinks) {
+				if (blnk.blink_count % 2 == 0)
 					PORTD |= GREEN | BLUE;
 				else
 					update_leds();
-				blink_count++;
+				blnk.blink_count++;
 			} else {
-			blinking_enable = 0;
+			blnk.blinking_enable = 0;
 			}
-		} else if (blinking_enable == 2) {
-			if (blink_count % 2 == 0)
-				PORTD = GREEN;
+			
+		} else if (blnk.blinking_enable == 2) {
+			if (blnk.blink_count % 2 == 0)
+				PORTD |= BLUE;
 			else
-				PORTD = 0x00;
-				blink_count++;
+				PORTD &= ~BLUE;
+				blnk.blink_count++;
 		}
 	}
 }
 
 ISR(TIMER2_COMP_vect) {
+	
     static int cntr = 0;
     static int count = 0;
 
@@ -293,7 +310,7 @@ ISR(TIMER2_COMP_vect) {
     PORTA = 0x00;
     dec2digit(digits[cntr]);
 
-    if (cntr == 1 && dp) PORTC |= 0x80;
+    if (cntr == 1 && clk.dp) PORTC |= 0x80;
 
     PORTA |= (1 << (cntr + 4));
     cntr = (cntr + 1) % 4;
@@ -309,19 +326,15 @@ ISR(TIMER2_COMP_vect) {
     }
 
 
-
     if ((PIND & BUT1) && (PIND & BUT2)) {
-		
         count++;
         if (count >= LONG_PRESS && long_press) handle_long_press(0);
 		
     } else if ((PIND & BUT1) && !(PIND & BUT2)) {
-		
         count++;
         if (count >= LONG_PRESS && long_press) handle_long_press(1);
 		
     } else if (!(PIND & BUT1) && (PIND & BUT2)) {
-		
         count++;
         if (count >= LONG_PRESS && long_press) handle_long_press(2);
 		
@@ -333,56 +346,61 @@ ISR(TIMER2_COMP_vect) {
 }
 
 ISR(TIMER1_COMPA_vect) {
+	
 	static int seconds = 0;
     static int milliseconds = 0;
 	static int ms = 0;
 
     if (milliseconds % 500 == 0)
 		if (mode == 0) {
-			dp = !dp;
+			clk.dp = !clk.dp;
 		}
 
     if (mode != 1 && mode != 2) {
 		milliseconds++;
+		
         if (milliseconds >= 1000) {
 			milliseconds = 0;
             seconds++;
+			
             if (seconds >= 60) {
                 seconds = 0;
-                minutes++;
-                if (minutes >= 60) {
-                    minutes = 0;
-                    hours++;
-                    if (hours >= 24) hours = 0;
+                clk.minutes++;
+				
+                if (clk.minutes >= 60) {
+                    clk.minutes = 0;
+                    clk.hours++;
+					
+                    if (clk.hours >= 24) clk.hours = 0;
 						
-                     time_changed = 1;
+                     clk.time_changed = 1;
                      
                 }
 
                 time2eeprom();
 
                 char time_str[20];
-                sprintf(time_str, "Time: %02d:%02d:%02d\r\n", hours, minutes, seconds);
+                sprintf(time_str, "Time: %02d:%02d:%02d\r\n", clk.hours, clk.minutes, seconds);
                 UART_send_str((unsigned char *)time_str);
             }
         }
+
 
 		if (timerr) {
 			ms++;
 			if (ms >= 1000) {
 				ms = 0;
-				if (sec_t == 0 && min_t == 0) {
-					blinking_enable = 2;
-				} else if (sec_t == 0 && min_t > 0) {
-					min_t--;
-					sec_t = 59;
+				if (tmr.sec_t == 0 && tmr.min_t == 0) {
+					blnk.blinking_enable = 2;
+				} else if (tmr.sec_t == 0 && tmr.min_t > 0) {
+					tmr.min_t--;
+					tmr.sec_t = 59;
 				} else {
-					sec_t--;
+					tmr.sec_t--;
 				}
 			}
 		}	
 	} 
-	
     led_blinking_handler();
 }
 
