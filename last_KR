@@ -57,7 +57,7 @@ Timer tmr = {0};
 
 
 void Button_Init(void) {
-	// Configure external interrupts INT0 and INT1 to trigger on falling edge (button press)
+	// Configure external interrupts INT0 and INT1
 	MCUCR |= (1 << ISC01);
     MCUCR |= (1 << ISC11);
     GICR |= (1 << INT0) | (1 << INT1);
@@ -65,9 +65,8 @@ void Button_Init(void) {
 
 
 void Timer_Counter_2_Init(void) {
-	// Initialize Timer2 in CTC mode for multiplexing display and button debounce
-    // Clock: F_CPU / 256, Compare Match every ~1ms
-	TCCR2 = (1 << WGM21) | (1 << CS22) | (1 << CS21);
+	// Initialize Timer2 in CTC mode for multiplexing display
+	TCCR2 = (1 << WGM21) | (1 << CS22) | (1 << CS21); //prescaler 256
     OCR2 = 12;
     TIMSK |= (1 << OCIE2);
 }
@@ -82,7 +81,7 @@ void Timer_Counter_1_Init(void) {
 
 
 void UART_Init(void) {
-	// Initialize UART with 4800 baud rate for serial communication
+	// Initialize UART with 4800 baud rate
     UBRRL = UBRR_value;
     UBRRH = (UBRR_value >> 8);
     UCSRB = (1 << TXEN) | (1 << RXEN);
@@ -114,7 +113,7 @@ void time2eeprom(void) {
 
 
 void timefreeprom(void) {
-	// Load time from EEPROM and validate values
+	// Load time from EEPROM
     clk.hours = eeprom_read_byte(&save_hours);
     clk.minutes = eeprom_read_byte(&save_minutes);
 
@@ -321,8 +320,8 @@ void led_blinking_handler() {
 }
 
 ISR(TIMER2_COMP_vect) {
-	// Multiplexing display digits (one digit at a time)
-    // Handle short press timing (debounce)
+	// Multiplexing display digits
+    // Handle short press timing
     // Detect long press by measuring time button is held
     static int cntr = 0;
     static int count = 0;
@@ -367,7 +366,7 @@ ISR(TIMER2_COMP_vect) {
 }
 
 ISR(TIMER1_COMPA_vect) {
-	// Update clock every second
+	// Update clock every millisecond
     // Update timer countdown when running
     // Handle LED blinking effects
     // Transmit current time via UART
@@ -429,12 +428,12 @@ ISR(TIMER1_COMPA_vect) {
 }
 
 ISR(INT0_vect) {
-	// Start debounce countdown for button 1
+	// Start debounce
     if (!ignr_d) debounce1 = 52;
 }
 
 ISR(INT1_vect) {
-	// Start debounce countdown for button 2
+	// Start debounce
     if (!ignr_d) debounce2 = 52;
 }
 
