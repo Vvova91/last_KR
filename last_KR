@@ -18,7 +18,7 @@
 #define UBRR_value  ((F_CPU / (16 * BAUD)) - 1)
 
 int digits[DIGITS] = {0};
-	
+
 int mode = 0;
 int timerr = 0;
 
@@ -279,7 +279,7 @@ void led_blinking_handler() {
 		ms_blink = 0;
 
 		if (blnk.blinking_enable == 1 && clk.time_changed) {
-			int max_blinks = (clk.hours == 0) ? 24 : clk.hours;
+			int max_blinks = ((clk.hours == 0) ? 24 : clk.hours) * 2;
 
 			if (blnk.blink_count < max_blinks) {
 				if (blnk.blink_count % 2 == 0)
